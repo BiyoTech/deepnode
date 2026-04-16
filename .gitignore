@@ -1,0 +1,5 @@
+# Only allow README.md, install.sh, and this .gitignore — block everything else
+*
+!README.md
+!install.sh
+!.gitignore
