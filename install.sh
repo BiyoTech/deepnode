@@ -11,14 +11,13 @@ set -euo pipefail
 # ─── Constants ───────────────────────────────────────────────────────────────
 REPO="BiyoTech/deepnode"
 DEFAULT_INSTALL_DIR="$HOME/deepnode-server"
-MIN_MACOS_VERSION="13.5"
 
 # ─── Color helpers ───────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
@@ -46,21 +45,12 @@ check_arch() {
 check_macos_version() {
     local version
     version="$(sw_vers -productVersion)"
-    local major minor
+    local major
     major="$(echo "$version" | cut -d. -f1)"
-    minor="$(echo "$version" | cut -d. -f2)"
-
-    local req_major req_minor
-    req_major="$(echo "$MIN_MACOS_VERSION" | cut -d. -f1)"
-    req_minor="$(echo "$MIN_MACOS_VERSION" | cut -d. -f2)"
-
-    if (( major < req_major )) || (( major == req_major && minor < req_minor )); then
-        error "macOS $MIN_MACOS_VERSION+ is required. Current version: $version"
-    fi
 
     # Determine the Metal-compatible macOS major version for asset matching
     MACOS_MAJOR="$major"
-    ok "macOS version: $version (Metal-compatible target: macOS $MACOS_MAJOR)"
+    ok "macOS version: $version (target: macOS $MACOS_MAJOR)"
 }
 
 check_commands() {
@@ -79,7 +69,6 @@ resolve_download_url() {
     if [[ "$version" == "latest" ]]; then
         api_url="https://api.github.com/repos/${REPO}/releases/latest"
     else
-        # Ensure version starts with 'v'
         [[ "$version" != v* ]] && version="v${version}"
         api_url="https://api.github.com/repos/${REPO}/releases/tags/${version}"
     fi
@@ -95,17 +84,17 @@ resolve_download_url() {
         error "Could not parse release tag from API response."
     fi
 
-    # Build expected asset name pattern: deepnode-<version>-macos<major>-<arch>.tar.gz
+    # Build expected asset name: deepnode-<version>-macos<major>-<arch>.tar.gz
     local asset_pattern="deepnode-${TAG_NAME}-macos${MACOS_MAJOR}-${ARCH}.tar.gz"
     info "Looking for asset: $asset_pattern"
 
     DOWNLOAD_URL="$(echo "$release_json" | grep '"browser_download_url"' | grep "$asset_pattern" | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
 
     if [[ -z "$DOWNLOAD_URL" ]]; then
-        # Fallback: try macos13 (base compatible build)
-        asset_pattern="deepnode-${TAG_NAME}-macos13-${ARCH}.tar.gz"
-        warn "Exact macOS $MACOS_MAJOR build not found, trying base build: $asset_pattern"
-        DOWNLOAD_URL="$(echo "$release_json" | grep '"browser_download_url"' | grep "$asset_pattern" | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
+        # Fallback: try any available macOS build for this arch
+        local fallback_pattern="deepnode-${TAG_NAME}-macos.*-${ARCH}.tar.gz"
+        warn "Exact macOS $MACOS_MAJOR build not found, searching for any compatible build..."
+        DOWNLOAD_URL="$(echo "$release_json" | grep '"browser_download_url"' | grep -E "$fallback_pattern" | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
     fi
 
     if [[ -z "$DOWNLOAD_URL" ]]; then
@@ -131,7 +120,6 @@ download_and_install() {
         || error "Download failed. Please check your network connection."
 
     info "Extracting to $install_dir ..."
-    # Remove old installation if exists
     if [[ -d "$install_dir" ]]; then
         warn "Existing installation found at $install_dir — backing up to ${install_dir}.bak"
         rm -rf "${install_dir}.bak"
@@ -148,7 +136,7 @@ download_and_install() {
     ok "Installed to: $install_dir"
 }
 
-# ─── Print post-install instructions ─────────────────────────────────────────
+# ─── Post-install instructions ────────────────────────────────────────────────
 print_instructions() {
     local install_dir="${DEEPNODE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
     echo ""
@@ -160,13 +148,21 @@ print_instructions() {
     echo ""
     echo "    cd $install_dir"
     echo ""
-    echo "    # Start with account credentials"
-    echo "    ./deepnode-server --standalone --account <user> --password <pass>"
+    echo "    # Start as background daemon (recommended)"
+    echo "    ./deepnode-server --start"
     echo ""
-    echo "    # Or start with token"
-    echo "    ./deepnode-server --standalone --token <your_token>"
+    echo "    # Or run in foreground (see logs directly)"
+    echo "    ./deepnode-server"
     echo ""
-    echo "  After starting, visit: http://127.0.0.1:8765/"
+    echo "  After starting, open Web UI: http://127.0.0.1:8765/"
+    echo "  Log in with your DeepPool account to complete device setup."
+    echo ""
+    echo "  Other commands:"
+    echo "    ./deepnode-server --status    # Check running status"
+    echo "    ./deepnode-server --log -f    # View logs (follow mode)"
+    echo "    ./deepnode-server --stop      # Stop the service"
+    echo ""
+    echo "  Need help? Email: contact@deeppool.tech"
     echo ""
     echo "  For more details, see:"
     echo "    https://github.com/${REPO}#readme"
